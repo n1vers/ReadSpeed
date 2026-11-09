@@ -3,6 +3,7 @@
 Read Speed — WPF-приложение для измерения скорости последовательного чтения файлов, сетевых ресурсов и HTTP/HTTPS-ссылок.
 
 [![Build](https://github.com/n1vers/ReadSpeed/actions/workflows/build.yml/badge.svg)](https://github.com/n1vers/ReadSpeed/actions/workflows/build.yml)
+[![Latest Release](https://img.shields.io/github/v/release/n1vers/ReadSpeed?display_name=tag)](https://github.com/n1vers/ReadSpeed/releases/latest)
 
 ## Возможности
 
@@ -20,7 +21,8 @@ Read Speed — WPF-приложение для измерения скорост
 - Windows x64;
 - .NET 10 SDK для сборки из исходников.
 
-Готовый self-contained EXE собирается GitHub Actions и доступен в разделе **Actions → workflow run → Artifacts**.
+Готовый self-contained EXE доступен на странице [последнего релиза](https://github.com/n1vers/ReadSpeed/releases/latest).
+Скачай `ReadSpeed-win-x64.zip`, распакуй архив и запусти `ReadSpeed.exe`.
 
 ## Запуск из интерфейса
 
@@ -73,9 +75,20 @@ dotnet build -c Release
 dotnet publish ReadPerfomance.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 ```
 
-## GitHub Actions
+## Релиз и GitHub Actions
 
-Workflow `.github/workflows/build.yml` запускается при push, Pull Request и вручную через **Run workflow**. Он выполняет restore, build, publish и загружает ZIP с готовым Windows-приложением.
+Workflow `.github/workflows/build.yml` запускается при push, Pull Request и вручную через **Run workflow**.
+Для обычных сборок ZIP доступен во временных **Actions Artifacts**.
+
+Чтобы выпустить новую версию с готовым EXE:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+После этого GitHub Actions выполнит restore, build и publish, а затем автоматически создаст GitHub Release с файлом `ReadSpeed-win-x64.zip`.
+Пользователям нужно скачивать ZIP именно из раздела **Releases**, а не из временных artifacts.
 
 ## Лицензия
 

@@ -3,12 +3,14 @@ name: Build Windows EXE
 on:
   push:
     branches: [ main, master ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -46,9 +48,18 @@ jobs:
         run: Compress-Archive -Path publish\* -DestinationPath ReadSpeed-win-x64.zip
 
       - name: Upload EXE artifact
+        if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v4
         with:
           name: ReadSpeed-win-x64
           path: ReadSpeed-win-x64.zip
           if-no-files-found: error
           retention-days: 30
+
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ReadSpeed-win-x64.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
