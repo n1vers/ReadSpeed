@@ -22,7 +22,7 @@ Read Speed — WPF-приложение для измерения скорост
 - .NET 10 SDK для сборки из исходников.
 
 Готовый self-contained EXE доступен на странице [последнего релиза](https://github.com/n1vers/ReadSpeed/releases/latest).
-Скачай `ReadSpeed-win-x64.zip`, распакуй архив и запусти `ReadSpeed.exe`.
+Скачай `ReadSpeed.exe` и запусти его напрямую.
 
 ## Запуск из интерфейса
 
@@ -78,7 +78,7 @@ dotnet publish ReadPerfomance.csproj -c Release -r win-x64 --self-contained true
 ## Релиз и GitHub Actions
 
 Workflow `.github/workflows/build.yml` запускается при push, Pull Request и вручную через **Run workflow**.
-Для обычных сборок ZIP доступен во временных **Actions Artifacts**.
+Для обычных сборок `ReadSpeed.exe` доступен во временных **Actions Artifacts**.
 
 Чтобы выпустить новую версию с готовым EXE:
 
@@ -87,8 +87,8 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-После этого GitHub Actions выполнит restore, build и publish, а затем автоматически создаст GitHub Release с файлом `ReadSpeed-win-x64.zip`.
-Пользователям нужно скачивать ZIP именно из раздела **Releases**, а не из временных artifacts.
+После этого GitHub Actions выполнит restore, build и publish, а затем автоматически создаст GitHub Release с файлом `ReadSpeed.exe`.
+Пользователям нужно скачивать EXE именно из раздела **Releases**, а не из временных artifacts.
 
 ## Лицензия
 

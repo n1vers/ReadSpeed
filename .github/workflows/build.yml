@@ -44,15 +44,12 @@ jobs:
           -p:DebugSymbols=false
           --output publish
 
-      - name: Archive EXE
-        run: Compress-Archive -Path publish\* -DestinationPath ReadSpeed-win-x64.zip
-
       - name: Upload EXE artifact
         if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v4
         with:
           name: ReadSpeed-win-x64
-          path: ReadSpeed-win-x64.zip
+          path: publish\ReadSpeed.exe
           if-no-files-found: error
           retention-days: 30
 
@@ -60,6 +57,6 @@ jobs:
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: ReadSpeed-win-x64.zip
+          files: publish\ReadSpeed.exe
           generate_release_notes: true
           fail_on_unmatched_files: true
