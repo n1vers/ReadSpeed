@@ -1,0 +1,457 @@
+<Window x:Class="StorageBench.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:StorageBench.Controls"
+        Title="Read Speed"
+        Icon="Resources/ReadSpeed.ico"
+        Height="760"
+        Width="1020"
+        MinHeight="600"
+        MinWidth="800"
+        AllowDrop="True"
+        DragOver="Window_DragOver"
+        Drop="Window_Drop"
+        Background="#1E1E1E"
+        Foreground="#F1F1F1"
+        Loaded="Window_Loaded">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="DarkSurfaceBrush" Color="#252526"/>
+        <SolidColorBrush x:Key="DarkInputBrush" Color="#333337"/>
+        <SolidColorBrush x:Key="DarkBorderBrush" Color="#555555"/>
+        <SolidColorBrush x:Key="DarkTextBrush" Color="#F1F1F1"/>
+        <SolidColorBrush x:Key="DarkMutedTextBrush" Color="#B8B8B8"/>
+        <SolidColorBrush x:Key="DarkSelectionBrush" Color="#264F78"/>
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource DarkTextBrush}"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource DarkInputBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource DarkTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource DarkBorderBrush}"/>
+        </Style>
+
+        <!-- Dark control templates preserve the existing layout and dimensions. -->
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#333337"/>
+            <Setter Property="Foreground" Value="#F1F1F1"/>
+            <Setter Property="BorderBrush" Value="#555555"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#414148"/></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#264F78"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="#858585"/><Setter TargetName="Chrome" Property="Background" Value="#29292C"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#333337"/>
+            <Setter Property="Foreground" Value="#F1F1F1"/>
+            <Setter Property="BorderBrush" Value="#555555"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="Toggle" Focusable="False" IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="22"/></Grid.ColumnDefinitions>
+                                                <Path Grid.Column="1" Data="M 0 0 L 4 4 L 8 0" Stroke="#E6E6E6" StrokeThickness="1.5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter Margin="8,0,24,0" IsHitTestVisible="False" VerticalAlignment="Center" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"/>
+                            <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+                                <Border MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" Background="#333337" BorderBrush="#555555" BorderThickness="1">
+                                    <ScrollViewer MaxHeight="300" CanContentScroll="True"><ItemsPresenter/></ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#333337"/>
+            <Setter Property="Foreground" Value="#F1F1F1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemBorder" Background="{TemplateBinding Background}" Padding="8,6"><ContentPresenter/></Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="#264F78"/></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="#264F78"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="#252526"/>
+            <Setter Property="Foreground" Value="#F1F1F1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid KeyboardNavigation.TabNavigation="Local">
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                            <TabPanel Grid.Row="0" IsItemsHost="True" Background="Transparent" KeyboardNavigation.TabIndex="1"/>
+                            <Border Grid.Row="1" Background="{TemplateBinding Background}" BorderBrush="#555555" BorderThickness="1" KeyboardNavigation.TabNavigation="Local">
+                                <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent"/>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="#D0D0D0"/>
+            <Setter Property="Background" Value="#29292C"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBorder" Background="{TemplateBinding Background}" BorderBrush="#555555" BorderThickness="1,1,1,0" Padding="{TemplateBinding Padding}" Margin="0,0,2,0">
+                            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="TabBorder" Property="Background" Value="#252526"/><Setter Property="Foreground" Value="#FFFFFF"/></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="TabBorder" Property="Background" Value="#38383D"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="#252526"/>
+            <Setter Property="Foreground" Value="#F1F1F1"/>
+            <Setter Property="BorderBrush" Value="#555555"/>
+            <Setter Property="RowBackground" Value="#252526"/>
+            <Setter Property="AlternatingRowBackground" Value="#2D2D30"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#444444"/>
+            <Setter Property="VerticalGridLinesBrush" Value="#444444"/>
+        </Style>
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#333337"/>
+            <Setter Property="Foreground" Value="#F1F1F1"/>
+            <Setter Property="BorderBrush" Value="#555555"/>
+        </Style>
+        <Style TargetType="DataGridCell">
+            <Setter Property="Foreground" Value="#F1F1F1"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style TargetType="DataGridRow">
+            <Setter Property="Foreground" Value="#F1F1F1"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#264F78"/><Setter Property="Foreground" Value="White"/></Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <TabControl x:Name="MainTabs" Margin="12" FontSize="13">
+
+        <!-- ===================== ТЕСТ ===================== -->
+        <TabItem Header="Тест">
+            <Grid Margin="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0"
+                           Text="Read Speed"
+                           FontSize="26"
+                           FontWeight="Bold"
+                           Margin="0,0,0,14"/>
+
+                <Border Grid.Row="1"
+                        BorderBrush="Gray"
+                        BorderThickness="2"
+                        CornerRadius="8"
+                        Padding="22"
+                        Margin="0,0,0,12"
+                        AllowDrop="True"
+                         Cursor="Hand"
+                         MouseLeftButtonUp="DropZone_Click"
+                        DragOver="Window_DragOver"
+                        Drop="Window_Drop">
+
+                    <StackPanel HorizontalAlignment="Center">
+                        <TextBlock Text="Перетащи файл или ссылку сюда"
+                                   FontSize="20"
+                                   FontWeight="SemiBold"
+                                   HorizontalAlignment="Center"/>
+
+                        <TextBlock Text="Локальный диск · USB · NAS · HTTP · HTTPS"
+                                   Margin="0,8,0,0"
+                                   Foreground="Gray"
+                                   HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <Grid Grid.Row="2" Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBox x:Name="SourceTextBox"
+                             Grid.Column="0"
+                             Height="54"
+                             VerticalContentAlignment="Top"
+                             FontSize="14"
+                             Padding="8,0"
+                             Margin="0,0,10,0"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto"
+                             ToolTip="Укажи один источник в строке. Для нескольких источников используй отдельные строки. Запуск — кнопка или Ctrl+Enter"
+                             KeyDown="SourceTextBox_KeyDown"/>
+
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                Margin="0,0,10,0"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="Скорость:"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,6,0"/>
+                        <ComboBox x:Name="SpeedUnitComboBox"
+                                  Width="80"
+                                  Height="34"
+                                  VerticalContentAlignment="Center"
+                                  SelectedIndex="0"
+                                  SelectionChanged="SpeedUnitComboBox_SelectionChanged">
+                            <ComboBoxItem Content="MB/s" Tag="MegabytesPerSecond"/>
+                            <ComboBoxItem Content="GB/s" Tag="GigabytesPerSecond"/>
+                            <ComboBoxItem Content="Mbps" Tag="MegabitsPerSecond"/>
+                            <ComboBoxItem Content="Gbps" Tag="GigabitsPerSecond"/>
+                        </ComboBox>
+
+                        <CheckBox x:Name="LoopCheckBox"
+                                  Content="Loop"
+                                  Margin="12,0,0,0"
+                                  VerticalAlignment="Center"
+                                  ToolTip="Повторять тест, пока не нажата кнопка «Отмена»"/>
+
+                        <TextBlock Text="Потоки:"
+                                   Margin="14,0,6,0"
+                                   VerticalAlignment="Center"/>
+                        <TextBox x:Name="ParallelTextBox"
+                                 Width="42"
+                                 Height="30"
+                                 Text="2"
+                                 VerticalContentAlignment="Center"
+                                 HorizontalContentAlignment="Center"
+                                 ToolTip="Максимальное число одновременных тестов"/>
+                    </StackPanel>
+
+                    <Button x:Name="StartButton"
+                            Grid.Column="2"
+                            Content="Запустить тест"
+                            Height="34"
+                            Padding="18,5"
+                            Click="StartButton_Click"/>
+                </Grid>
+
+                <StackPanel Grid.Row="3">
+                    <TextBlock x:Name="StatusText"
+                               Text="Ожидание источника..."
+                               FontSize="14"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8"/>
+
+                    <ProgressBar x:Name="TestProgressBar"
+                                 Height="12"
+                                 Minimum="0"
+                                 Maximum="100"
+                                 Value="0"
+                                 Margin="0,0,0,12"/>
+
+                    <controls:SpeedGraph x:Name="LiveGraph"
+                                         Height="260"
+                                         EmptyText="График появится во время теста"/>
+
+                    <ScrollViewer x:Name="ParallelTestsScrollViewer"
+                                  Visibility="Collapsed"
+                                  MaxHeight="520"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="ParallelTestsPanel"/>
+                    </ScrollViewer>
+                </StackPanel>
+
+                <TextBlock x:Name="ProgressText"
+                           Grid.Row="4"
+                           Text=""
+                           FontSize="13"
+                           TextWrapping="Wrap"
+                           Margin="0,12,0,12"/>
+
+                <StackPanel Grid.Row="5"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="PauseButton"
+                            Content="Пауза"
+                            Width="100"
+                            Margin="0,0,8,0"
+                            IsEnabled="False"
+                            Click="PauseButton_Click"/>
+
+                    <Button x:Name="CancelButton"
+                            Content="Отмена"
+                            Width="100"
+                            IsEnabled="False"
+                            Click="CancelButton_Click"/>
+                </StackPanel>
+            </Grid>
+        </TabItem>
+
+        <!-- ===================== ИСТОРИЯ ===================== -->
+        <TabItem x:Name="HistoryTab" Header="История">
+            <Grid Margin="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <DataGrid x:Name="HistoryGrid"
+                          Grid.Row="0"
+                          MinHeight="140"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          SelectionMode="Single"
+                          SelectionUnit="FullRow"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal"
+                          CanUserAddRows="False"
+                          CanUserResizeRows="False"
+                          RowHeight="26"
+                          SelectionChanged="HistoryGrid_SelectionChanged">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Дата и время"
+                                            Binding="{Binding StartedAt, StringFormat={}{0:dd.MM.yyyy HH:mm:ss}}"
+                                            SortMemberPath="StartedAt"
+                                            Width="Auto"/>
+                        <DataGridTextColumn Header="Завершение"
+                                            Binding="{Binding CompletedAtText}"
+                                            SortMemberPath="CompletedAt"
+                                            Width="Auto"/>
+                        <DataGridTextColumn Header="Статус"
+                                            Binding="{Binding StatusText}"
+                                            Width="Auto"/>
+                        <DataGridTextColumn Header="Источник"
+                                            Binding="{Binding SourceKindText}"
+                                            Width="Auto"/>
+                        <DataGridTextColumn Header="Файл / ссылка"
+                                            Binding="{Binding SourceName}"
+                                            Width="*"/>
+                        <DataGridTextColumn x:Name="AverageSpeedColumn"
+                                            Header="Средняя, MB/s"
+                                            Binding="{Binding AverageSpeedMBps, StringFormat={}{0:F1}}"
+                                            Width="Auto"/>
+                        <DataGridTextColumn x:Name="MinimumSpeedColumn"
+                                            Header="Мин, MB/s"
+                                            Binding="{Binding MinimumSpeedMBps, StringFormat={}{0:F1}}"
+                                            Width="Auto"/>
+                        <DataGridTextColumn x:Name="MaximumSpeedColumn"
+                                            Header="Макс, MB/s"
+                                            Binding="{Binding MaximumSpeedMBps, StringFormat={}{0:F1}}"
+                                            Width="Auto"/>
+                        <DataGridTextColumn Header="Прочитано"
+                                            Binding="{Binding TotalReadText}"
+                                            SortMemberPath="TotalBytesRead"
+                                            Width="Auto"/>
+                        <DataGridTextColumn Header="Время"
+                                            Binding="{Binding DurationText}"
+                                            SortMemberPath="Duration"
+                                            Width="Auto"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <Grid Grid.Row="1" Height="250" Margin="0,12,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="320"/>
+                    </Grid.ColumnDefinitions>
+
+                    <controls:SpeedGraph x:Name="HistoryGraph"
+                                         Grid.Column="0"
+                                         EmptyText="Выбери проверку в списке, чтобы увидеть график"/>
+
+                    <ScrollViewer Grid.Column="1"
+                                  Margin="12,0,0,0"
+                                  VerticalScrollBarVisibility="Auto">
+                        <TextBlock x:Name="HistoryDetailsText"
+                                   TextWrapping="Wrap"
+                                   FontSize="13"/>
+                    </ScrollViewer>
+                </Grid>
+
+                <Grid Grid.Row="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock x:Name="HistoryCountText"
+                               Grid.Column="0"
+                               VerticalAlignment="Center"
+                               Foreground="Gray"/>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <TextBlock Text="История:"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,6,0"/>
+                        <ComboBox x:Name="HistorySpeedUnitComboBox"
+                                  Width="80"
+                                  Height="30"
+                                  VerticalContentAlignment="Center"
+                                  SelectedIndex="0"
+                                  Margin="0,0,10,0"
+                                  SelectionChanged="HistorySpeedUnitComboBox_SelectionChanged">
+                            <ComboBoxItem Content="MB/s" Tag="MegabytesPerSecond"/>
+                            <ComboBoxItem Content="GB/s" Tag="GigabytesPerSecond"/>
+                            <ComboBoxItem Content="Mbps" Tag="MegabitsPerSecond"/>
+                            <ComboBoxItem Content="Gbps" Tag="GigabitsPerSecond"/>
+                        </ComboBox>
+                        <Button x:Name="RerunSelectedButton"
+                                Content="Запустить заново"
+                                Padding="14,5"
+                                Margin="0,0,10,0"
+                                IsEnabled="False"
+                                Click="RerunSelectedButton_Click"/>
+                        <Button x:Name="DeleteSelectedButton"
+                                Content="Удалить выбранную"
+                                Padding="14,5"
+                                Margin="0,0,10,0"
+                                IsEnabled="False"
+                                Click="DeleteSelectedButton_Click"/>
+                        <Button x:Name="ClearHistoryButton"
+                                Content="Очистить историю"
+                                Padding="14,5"
+                                IsEnabled="False"
+                                Click="ClearHistoryButton_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </TabItem>
+    </TabControl>
+</Window>

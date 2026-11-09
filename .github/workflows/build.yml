@@ -1,0 +1,54 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore ReadPerfomance.csproj
+
+      - name: Build
+        run: dotnet build ReadPerfomance.csproj --configuration Release --no-restore
+
+      - name: Publish self-contained EXE
+        run: >-
+          dotnet publish ReadPerfomance.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --no-restore
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=None
+          -p:DebugSymbols=false
+          --output publish
+
+      - name: Archive EXE
+        run: Compress-Archive -Path publish\* -DestinationPath ReadSpeed-win-x64.zip
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReadSpeed-win-x64
+          path: ReadSpeed-win-x64.zip
+          if-no-files-found: error
+          retention-days: 30
