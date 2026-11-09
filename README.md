@@ -2,6 +2,8 @@
 
 Read Speed — WPF-приложение для измерения скорости последовательного чтения файлов, сетевых ресурсов и HTTP/HTTPS-ссылок.
 
+[![Build](https://github.com/n1vers/ReadSpeed/actions/workflows/build.yml/badge.svg)](https://github.com/n1vers/ReadSpeed/actions/workflows/build.yml)
+
 ## Возможности
 
 - локальные файлы и диски;
