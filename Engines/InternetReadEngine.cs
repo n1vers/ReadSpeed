@@ -63,6 +63,7 @@ public sealed class InternetReadEngine : IReadEngine
         long? contentLength = null;
         bool reachedEnd = false;
         bool reconnectRequested = false;
+        NetworkInterfaceState previousState = GetNetworkInterfaceState();
 
         using var networkChanged = new NetworkChangeMonitor(() => reconnectRequested = true);
 
@@ -80,10 +81,15 @@ public sealed class InternetReadEngine : IReadEngine
             }
 
             networkChanged.Changed += RequestReconnect;
+            long nextTopologyCheck = 0;
 
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+
+                // После изменения сетевого интерфейса нельзя возвращать старое
+                // соединение из пула: оно могло быть установлено через Wi-Fi.
+                request.Headers.ConnectionClose = position > 0;
 
                 if (position > 0)
                 {
@@ -114,6 +120,18 @@ public sealed class InternetReadEngine : IReadEngine
                 {
                     if (settings.PauseController is { } pauseController)
                         await pauseController.WaitIfPausedAsync(cancellationToken);
+
+                    if (Environment.TickCount64 >= nextTopologyCheck)
+                    {
+                        nextTopologyCheck = Environment.TickCount64 + 250;
+                        NetworkInterfaceState state = GetNetworkInterfaceState();
+
+                        if (state != previousState)
+                        {
+                            previousState = state;
+                            RequestReconnect();
+                        }
+                    }
 
                     int bytesRead = await stream.ReadAsync(
                         buffer.AsMemory(),
@@ -186,6 +204,42 @@ public sealed class InternetReadEngine : IReadEngine
             ObjectDisposedException ||
         exception.InnerException is not null &&
         IsReconnectableNetworkError(exception.InnerException);
+
+    private static NetworkInterfaceState GetNetworkInterfaceState()
+    {
+        var topology = new List<string>();
+
+        foreach (NetworkInterface networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (networkInterface.OperationalStatus != OperationalStatus.Up ||
+                networkInterface.NetworkInterfaceType is not
+                    (NetworkInterfaceType.Ethernet or NetworkInterfaceType.Wireless80211))
+            {
+                continue;
+            }
+
+            try
+            {
+                IPInterfaceProperties properties = networkInterface.GetIPProperties();
+                string addresses = string.Join(",", properties.UnicastAddresses
+                    .Select(address => address.Address.ToString())
+                    .OrderBy(address => address));
+                string gateways = string.Join(",", properties.GatewayAddresses
+                    .Select(gateway => gateway.Address.ToString())
+                    .OrderBy(address => address));
+
+                topology.Add($"{networkInterface.Id}:{addresses}:{gateways}");
+            }
+            catch (NetworkInformationException)
+            {
+                topology.Add(networkInterface.Id);
+            }
+        }
+
+        return new NetworkInterfaceState(string.Join("|", topology.OrderBy(value => value)));
+    }
+
+    private readonly record struct NetworkInterfaceState(string Topology);
 
     private sealed class NetworkChangeMonitor : IDisposable
     {

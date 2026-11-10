@@ -4,10 +4,10 @@
         xmlns:controls="clr-namespace:StorageBench.Controls"
         Title="Read Speed"
         Icon="Resources/ReadSpeed.ico"
-        Height="760"
+        Height="860"
         Width="1020"
-        MinHeight="600"
-        MinWidth="800"
+        MinHeight="500"
+        MinWidth="600"
         AllowDrop="True"
         DragOver="Window_DragOver"
         Drop="Window_Drop"
@@ -206,78 +206,71 @@
                 </Border>
 
                 <Grid Grid.Row="2" Margin="0,0,0,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
                     <TextBox x:Name="SourceTextBox"
-                             Grid.Column="0"
+                             Grid.Row="0"
                              Height="54"
                              VerticalContentAlignment="Top"
                              FontSize="14"
                              Padding="8,0"
-                             Margin="0,0,10,0"
+                             Margin="0,0,0,10"
                              AcceptsReturn="True"
                              TextWrapping="Wrap"
                              VerticalScrollBarVisibility="Auto"
                              ToolTip="Укажи один источник в строке. Для нескольких источников используй отдельные строки. Запуск — кнопка или Ctrl+Enter"
                              KeyDown="SourceTextBox_KeyDown"/>
 
-                    <StackPanel Grid.Column="1"
-                                Orientation="Horizontal"
-                                Margin="0,0,10,0"
-                                VerticalAlignment="Center">
-                        <TextBlock Text="Скорость:"
-                                   VerticalAlignment="Center"
-                                   Margin="0,0,6,0"/>
-                        <ComboBox x:Name="SpeedUnitComboBox"
-                                  Width="80"
-                                  Height="34"
-                                  VerticalContentAlignment="Center"
-                                  SelectedIndex="0"
-                                  SelectionChanged="SpeedUnitComboBox_SelectionChanged">
-                            <ComboBoxItem Content="MB/s" Tag="MegabytesPerSecond"/>
-                            <ComboBoxItem Content="GB/s" Tag="GigabytesPerSecond"/>
-                            <ComboBoxItem Content="Mbps" Tag="MegabitsPerSecond"/>
-                            <ComboBoxItem Content="Gbps" Tag="GigabitsPerSecond"/>
-                        </ComboBox>
+                    <Grid Grid.Row="1" VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <WrapPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="Скорость:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <ComboBox x:Name="SpeedUnitComboBox" MinWidth="70" MaxWidth="90" Height="34" VerticalContentAlignment="Center" SelectedIndex="0" SelectionChanged="SpeedUnitComboBox_SelectionChanged">
+                                <ComboBoxItem Content="MB/s" Tag="MegabytesPerSecond"/>
+                                <ComboBoxItem Content="GB/s" Tag="GigabytesPerSecond"/>
+                                <ComboBoxItem Content="Mbps" Tag="MegabitsPerSecond"/>
+                                <ComboBoxItem Content="Gbps" Tag="GigabitsPerSecond"/>
+                            </ComboBox>
+                            <CheckBox x:Name="LoopCheckBox" Content="Loop" Margin="12,0,0,0" VerticalAlignment="Center" ToolTip="Повторять тест, пока не нажата кнопка «Отмена»"/>
+                            <TextBlock Text="Потоки:" Margin="14,0,6,0" VerticalAlignment="Center"/>
+                            <TextBox x:Name="ThreadsTextBox" MinWidth="36" MaxWidth="50" Height="30" Text="1" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" ToolTip="Количество чтений одного источника"/>
+                            <TextBlock Text="Параллельность:" Margin="12,0,6,0" VerticalAlignment="Center"/>
+                            <TextBox x:Name="ParallelTextBox" MinWidth="36" MaxWidth="50" Height="30" Text="2" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" ToolTip="Максимальное количество источников одновременно"/>
+                            <TextBlock x:Name="ParallelInfoText" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource DarkMutedTextBrush}" ToolTip="Текущие активные тесты и лимит параллельности"/>
+                        </WrapPanel>
 
-                        <CheckBox x:Name="LoopCheckBox"
-                                  Content="Loop"
-                                  Margin="12,0,0,0"
-                                  VerticalAlignment="Center"
-                                  ToolTip="Повторять тест, пока не нажата кнопка «Отмена»"/>
-
-                        <TextBlock Text="Потоки:"
-                                   Margin="14,0,6,0"
-                                   VerticalAlignment="Center"/>
-                        <TextBox x:Name="ParallelTextBox"
-                                 Width="42"
-                                 Height="30"
-                                 Text="2"
-                                 VerticalContentAlignment="Center"
-                                 HorizontalContentAlignment="Center"
-                                 ToolTip="Максимальное число одновременных тестов"/>
-                    </StackPanel>
-
-                    <Button x:Name="StartButton"
-                            Grid.Column="2"
+                        <Button x:Name="StartButton"
+                            Grid.Column="1"
                             Content="Запустить тест"
                             Height="34"
                             Padding="18,5"
                             Click="StartButton_Click"/>
+                    </Grid>
                 </Grid>
 
-                <StackPanel Grid.Row="3">
+                <Grid Grid.Row="3">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
                     <TextBlock x:Name="StatusText"
+                               Grid.Row="0"
                                Text="Ожидание источника..."
                                FontSize="14"
                                TextWrapping="Wrap"
                                Margin="0,0,0,8"/>
 
                     <ProgressBar x:Name="TestProgressBar"
+                                 Grid.Row="1"
                                  Height="12"
                                  Minimum="0"
                                  Maximum="100"
@@ -285,17 +278,20 @@
                                  Margin="0,0,0,12"/>
 
                     <controls:SpeedGraph x:Name="LiveGraph"
-                                         Height="260"
+                                         Grid.Row="2"
+                                         MinHeight="200"
+                                         MaxHeight="400"
                                          EmptyText="График появится во время теста"/>
 
+                    <!-- Несколько источников: по карточке с информацией и графиком на каждый. -->
                     <ScrollViewer x:Name="ParallelTestsScrollViewer"
-                                  Visibility="Collapsed"
-                                  MaxHeight="520"
-                                  VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel x:Name="ParallelTestsPanel"/>
+                                   Grid.Row="3"
+                                   Visibility="Collapsed"
+                                   VerticalScrollBarVisibility="Auto"
+                                   HorizontalScrollBarVisibility="Auto">
+                        <UniformGrid x:Name="ParallelTestsPanel" Columns="1"/>
                     </ScrollViewer>
-                </StackPanel>
+                </Grid>
 
                 <TextBlock x:Name="ProgressText"
                            Grid.Row="4"
@@ -386,10 +382,10 @@
                     </DataGrid.Columns>
                 </DataGrid>
 
-                <Grid Grid.Row="1" Height="250" Margin="0,12,0,12">
+                <Grid Grid.Row="1" MinHeight="200" MaxHeight="300" Margin="0,12,0,12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="320"/>
+                        <ColumnDefinition Width="Auto" MinWidth="280" MaxWidth="360"/>
                     </Grid.ColumnDefinitions>
 
                     <controls:SpeedGraph x:Name="HistoryGraph"

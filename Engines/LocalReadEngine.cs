@@ -43,6 +43,9 @@ public class LocalReadEngine : IReadEngine
             throw new ArgumentOutOfRangeException(
                 nameof(settings.BufferSize));
 
+        if (!settings.DisableWindowsCache)
+            return ReadWithWindowsCache(path, settings, progress, cancellationToken);
+
         // Determine volume sector size.
         var volume = new System.Text.StringBuilder(260);
 
@@ -134,6 +137,48 @@ public class LocalReadEngine : IReadEngine
                 UIntPtr.Zero,
                 NativeMethods.MEM_RELEASE);
         }
+    }
+
+    private static BenchmarkResult ReadWithWindowsCache(
+        string path,
+        BenchmarkSettings settings,
+        IProgress<ReadProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read | FileShare.Write | FileShare.Delete,
+            bufferSize: 1024 * 1024,
+            options: FileOptions.SequentialScan);
+
+        var sampler = new SpeedSampler(progress);
+        byte[] buffer = new byte[checked(settings.BufferSize * 1024)];
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            settings.PauseController?
+                .WaitIfPausedAsync(cancellationToken)
+                .GetAwaiter()
+                .GetResult();
+
+            int bytesRead = stream.Read(buffer, 0, buffer.Length);
+            if (bytesRead == 0)
+                break;
+
+            sampler.AddBytes(bytesRead);
+        }
+
+        BenchmarkResult result = sampler.Finish();
+        result.Source = settings.SourcePath;
+        result.SourceKind = nameof(SourceType.Local);
+        result.TestType = "Последовательное чтение (с кэшем Windows)";
+        result.FileSizeBytes = stream.Length;
+        result.BufferSizeKB = settings.BufferSize;
+        result.ReachedEnd = true;
+        return result;
     }
 
     private static BenchmarkResult ReadFileSequentially(

@@ -1,6 +1,8 @@
 using System.IO;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Text;
 using StorageBench.Core.Interfaces;
 using StorageBench.Core.Models;
 using StorageBench.Core.Services;
@@ -56,6 +58,7 @@ public class NetworkReadEngine : IReadEngine
             }
 
             networkChanged.Changed += RequestReconnect;
+            long nextTopologyCheck = 0;
 
             try
             {
@@ -76,6 +79,18 @@ public class NetworkReadEngine : IReadEngine
                     cancellationToken.ThrowIfCancellationRequested();
                     if (settings.PauseController is { } pauseController)
                         await pauseController.WaitIfPausedAsync(cancellationToken);
+
+                    if (Environment.TickCount64 >= nextTopologyCheck)
+                    {
+                        nextTopologyCheck = Environment.TickCount64 + 250;
+                        NetworkInterfaceState state = GetNetworkInterfaceState();
+
+                        if (state != previousState)
+                        {
+                            previousState = state;
+                            RequestReconnect();
+                        }
+                    }
 
                     int bytesRead = await stream.ReadAsync(
                         buffer.AsMemory(0, buffer.Length),
@@ -110,6 +125,7 @@ public class NetworkReadEngine : IReadEngine
             if (!reachedEnd && reconnectRequested)
             {
                 reconnectRequested = false;
+                DisconnectNetworkConnection(settings.SourcePath);
                 await Task.Delay(
                     GetNetworkInterfaceState().EthernetAvailable ? 100 : 500,
                     cancellationToken);
@@ -135,10 +151,59 @@ public class NetworkReadEngine : IReadEngine
         exception.InnerException is not null &&
         IsReconnectableNetworkError(exception.InnerException);
 
+    private static void DisconnectNetworkConnection(string sourcePath)
+    {
+        string? remoteName = GetRemoteName(sourcePath);
+        if (string.IsNullOrWhiteSpace(remoteName))
+            return;
+
+        _ = WNetCancelConnection2(remoteName, 0, false);
+    }
+
+    private static string? GetRemoteName(string sourcePath)
+    {
+        string path = sourcePath.Trim();
+
+        if (path.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            string[] segments = path.Split('\\', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length >= 2)
+                return $@"\\{segments[0]}\{segments[1]}";
+
+            return null;
+        }
+
+        if (path.Length >= 2 && path[1] == ':')
+        {
+            string localName = path[..2];
+            var remoteName = new StringBuilder(260);
+            int remoteNameLength = remoteName.Capacity;
+            int result = WNetGetConnection(localName, remoteName, ref remoteNameLength);
+
+            if (result == 0 && remoteNameLength > 0)
+                return remoteName.ToString();
+        }
+
+        return null;
+    }
+
+    [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
+    private static extern int WNetCancelConnection2(
+        string lpName,
+        int dwFlags,
+        bool fForce);
+
+    [DllImport("mpr.dll", CharSet = CharSet.Unicode)]
+    private static extern int WNetGetConnection(
+        string lpLocalName,
+        StringBuilder lpRemoteName,
+        ref int lpnLength);
+
     private static NetworkInterfaceState GetNetworkInterfaceState()
     {
         bool ethernetAvailable = false;
         bool wirelessAvailable = false;
+        var topology = new List<string>();
 
         foreach (NetworkInterface networkInterface in NetworkInterface.GetAllNetworkInterfaces())
         {
@@ -149,14 +214,39 @@ public class NetworkReadEngine : IReadEngine
                 ethernetAvailable = true;
             else if (networkInterface.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
                 wirelessAvailable = true;
+
+            if (networkInterface.NetworkInterfaceType is
+                NetworkInterfaceType.Ethernet or NetworkInterfaceType.Wireless80211)
+            {
+                try
+                {
+                    IPInterfaceProperties properties = networkInterface.GetIPProperties();
+                    string addresses = string.Join(",", properties.UnicastAddresses
+                        .Select(address => address.Address.ToString())
+                        .OrderBy(address => address));
+                    string gateways = string.Join(",", properties.GatewayAddresses
+                        .Select(gateway => gateway.Address.ToString())
+                        .OrderBy(address => address));
+
+                    topology.Add($"{networkInterface.Id}:{addresses}:{gateways}");
+                }
+                catch (NetworkInformationException)
+                {
+                    topology.Add(networkInterface.Id);
+                }
+            }
         }
 
-        return new NetworkInterfaceState(ethernetAvailable, wirelessAvailable);
+        return new NetworkInterfaceState(
+            ethernetAvailable,
+            wirelessAvailable,
+            string.Join("|", topology.OrderBy(value => value)));
     }
 
     private readonly record struct NetworkInterfaceState(
         bool EthernetAvailable,
-        bool WirelessAvailable);
+        bool WirelessAvailable,
+        string Topology);
 
     private sealed class NetworkChangeMonitor : IDisposable
     {

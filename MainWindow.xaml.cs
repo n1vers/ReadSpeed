@@ -24,11 +24,18 @@ public partial class MainWindow : Window
 
     private CancellationTokenSource? _cancellationTokenSource;
     private PauseController? _pauseController;
+    private SemaphoreSlim? _parallelSemaphore;
+    private TaskCompletionSource? _sessionCompletion;
+    private int _sessionParallelism;
+    private int _sessionTaskCount;
     private SpeedUnit _speedUnit = SpeedUnit.MegabytesPerSecond;
     private SpeedUnit _historySpeedUnit = SpeedUnit.MegabytesPerSecond;
     private bool _isInitialized;
     private bool _startupArgumentsHandled;
-    private readonly List<ParallelTestDisplay> _parallelDisplays = new();
+    private readonly List<TestCard> _cards = new();
+    private readonly Dictionary<TestCard, PauseController> _cardPauseControllers = new();
+    private readonly SemaphoreSlim _historySaveLock = new(1, 1);
+    private TestCard? _selectedCard;
 
     public MainWindow()
     {
@@ -108,10 +115,14 @@ public partial class MainWindow : Window
 
     private async Task SaveHistoryAsync()
     {
-        List<BenchmarkResult> snapshot = _historyItems.ToList();
+        // Параллельные тесты завершаются одновременно, а Save пишет один и тот же файл:
+        // запись идёт строго по очереди, и каждый раз сохраняется самое свежее состояние.
+        await _historySaveLock.WaitAsync();
 
         try
         {
+            List<BenchmarkResult> snapshot = _historyItems.ToList();
+
             await Task.Run(() => _history.Save(snapshot));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -121,6 +132,10 @@ public partial class MainWindow : Window
                 "StorageBench",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _historySaveLock.Release();
         }
     }
 
@@ -177,7 +192,7 @@ public partial class MainWindow : Window
         }
 
         SourceTextBox.Text = result.Source;
-        await StartSourceAsync(result.Source);
+        await StartSourcesAsync(new[] { result.Source });
     }
 
     private async void DeleteSelectedButton_Click(object sender, RoutedEventArgs e)
@@ -283,8 +298,8 @@ public partial class MainWindow : Window
     {
         LiveGraph.SetUnit(_speedUnit);
 
-        foreach (ParallelTestDisplay display in _parallelDisplays)
-            display.Graph.SetUnit(_speedUnit);
+        foreach (TestCard card in _cards)
+            card.SetUnit(_speedUnit);
     }
 
     private void UpdateHistorySpeedUnitDisplay()
@@ -324,49 +339,45 @@ public partial class MainWindow : Window
 
     private async void Window_Drop(object sender, DragEventArgs e)
     {
-        string? source = null;
+        var sources = new List<string>();
 
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
         {
-            var files = e.Data.GetData(DataFormats.FileDrop) as string[];
-
-            if (files is { Length: > 0 })
-                source = files[0];
+            if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
+                sources.AddRange(files.Select(CleanSource).Where(f => f.Length > 0));
         }
         else if (e.Data.GetDataPresent(DataFormats.UnicodeText))
         {
-            source = e.Data.GetData(DataFormats.UnicodeText) as string;
+            sources.AddRange(ParseSources(e.Data.GetData(DataFormats.UnicodeText) as string));
         }
         else if (e.Data.GetDataPresent(DataFormats.Text))
         {
-            source = e.Data.GetData(DataFormats.Text) as string;
+            sources.AddRange(ParseSources(e.Data.GetData(DataFormats.Text) as string));
         }
 
         e.Handled = true;
 
-        if (!string.IsNullOrWhiteSpace(source))
-        {
-            source = CleanSource(source);
+        if (sources.Count == 0)
+            return;
 
-            SourceTextBox.Text = source;
-            await StartSourcesAsync(new[] { source });
-        }
+        SourceTextBox.Text = string.Join(Environment.NewLine, sources);
+        await StartSourcesAsync(sources);
     }
 
     private async void DropZone_Click(object sender, MouseButtonEventArgs e)
     {
         var dialog = new OpenFileDialog
         {
-            Title = "Выбери файл для теста",
+            Title = "Выбери файл или несколько файлов для теста",
             CheckFileExists = true,
-            Multiselect = false
+            Multiselect = true
         };
 
         if (dialog.ShowDialog() != true)
             return;
 
-        SourceTextBox.Text = dialog.FileName;
-        await StartSourcesAsync(new[] { dialog.FileName });
+        SourceTextBox.Text = string.Join(Environment.NewLine, dialog.FileNames);
+        await StartSourcesAsync(dialog.FileNames);
     }
 
     private async void StartButton_Click(object sender, RoutedEventArgs e)
@@ -405,62 +416,74 @@ public partial class MainWindow : Window
         return value;
     }
 
-    private ParallelTestDisplay CreateParallelTestDisplay(string source)
+    private int GetThreadCount()
     {
-        var display = new ParallelTestDisplay
-        {
-            Source = source,
-            Status = new TextBlock
-            {
-                Text = "Подготовка теста...",
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 6)
-            },
-            Progress = new ProgressBar
-            {
-                Height = 10,
-                Minimum = 0,
-                Maximum = 100,
-                Margin = new Thickness(0, 0, 0, 8),
-                IsIndeterminate = true
-            },
-            Graph = new SpeedGraph
-            {
-                Height = 190,
-                EmptyText = "График появится во время теста"
-            }
-        };
+        if (!int.TryParse(ThreadsTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+            value = 1;
 
-        display.Graph.SetUnit(_speedUnit);
-
-        var content = new StackPanel();
-        content.Children.Add(new TextBlock
-        {
-            Text = source,
-            FontWeight = FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 6)
-        });
-        content.Children.Add(display.Status);
-        content.Children.Add(display.Progress);
-        content.Children.Add(display.Graph);
-
-        var border = new Border
-        {
-            BorderBrush = Brushes.Gray,
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(8),
-            Margin = new Thickness(0, 0, 0, 10),
-            Child = content
-        };
-
-        ParallelTestsPanel.Children.Add(border);
-        return display;
+        value = Math.Clamp(value, 1, 64);
+        ThreadsTextBox.Text = value.ToString(CultureInfo.InvariantCulture);
+        return value;
     }
 
     // ------------------------------------------------------------------
-    // Запуск теста
+    // Параллельный запуск нескольких источников
     // ------------------------------------------------------------------
+
+    private TestCard CreateTestCard(string source)
+    {
+        var card = new TestCard(source, SourceDetector.Detect(source));
+        card.SetUnit(_speedUnit);
+        card.SelectionChanged += Card_SelectionChanged;
+
+        ParallelTestsPanel.Children.Add(card);
+        _cards.Add(card);
+        _cardPauseControllers[card] = new PauseController();
+
+        return card;
+    }
+
+    private void Card_SelectionChanged(object? sender, EventArgs e)
+    {
+        if (sender is not TestCard card)
+            return;
+
+        if (card.IsSelected)
+        {
+            foreach (TestCard other in _cards.Where(other => other != card))
+                other.SetSelected(false);
+
+            _selectedCard = card;
+        }
+        else if (_selectedCard == card)
+        {
+            _selectedCard = null;
+        }
+
+        UpdatePauseButton();
+    }
+
+    /// <summary>Режим «несколько источников»: вместо одного графика — карточка на каждый источник.</summary>
+    private void ShowParallelMode(int count)
+    {
+        ParallelTestsPanel.Children.Clear();
+        _cards.Clear();
+        _cardPauseControllers.Clear();
+        _selectedCard = null;
+        ParallelTestsPanel.Columns = count >= 2 ? 2 : 1;
+
+        LiveGraph.Visibility = Visibility.Collapsed;
+        TestProgressBar.Visibility = Visibility.Collapsed;
+        ParallelTestsScrollViewer.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>Режим «один источник»: общий график. Карточки прошлого запуска скрываются.</summary>
+    private void ShowSingleMode()
+    {
+        ParallelTestsScrollViewer.Visibility = Visibility.Collapsed;
+        LiveGraph.Visibility = Visibility.Visible;
+        TestProgressBar.Visibility = Visibility.Visible;
+    }
 
     private async Task StartSourcesAsync(IEnumerable<string> sourceValues)
     {
@@ -469,20 +492,14 @@ public partial class MainWindow : Window
             .Where(source => !string.IsNullOrWhiteSpace(source))
             .ToArray();
 
-        if (sources.Length == 0 || _cancellationTokenSource is not null)
+        if (sources.Length == 0)
             return;
-
-        if (sources.Length == 1)
-        {
-            await StartSourceAsync(sources[0]);
-            return;
-        }
 
         if (sources.Any(source => SourceDetector.Detect(source) == SourceType.Unknown))
         {
             MessageBox.Show(
                 "Один или несколько источников имеют неизвестный формат.\n\n" +
-                "Используй пути к файлам или HTTP/HTTPS ссылки.",
+                "Используй пути к существующим файлам или HTTP/HTTPS ссылки.",
                 "StorageBench",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
@@ -490,136 +507,190 @@ public partial class MainWindow : Window
         }
 
         MainTabs.SelectedIndex = 0;
-        _cancellationTokenSource = new CancellationTokenSource();
-        _pauseController = new PauseController();
-        SetRunningState(true);
-        StatusText.Text = $"Запущено источников: {sources.Length}";
-        ProgressText.Text = "Подготовка параллельных тестов...";
-        LiveGraph.Visibility = Visibility.Collapsed;
-        TestProgressBar.Visibility = Visibility.Collapsed;
-        ParallelTestsPanel.Children.Clear();
-        ParallelTestsScrollViewer.Visibility = Visibility.Visible;
 
-        ParallelTestDisplay[] displays = sources
-            .Select(CreateParallelTestDisplay)
+        bool newSession = _cancellationTokenSource is null;
+
+        if (newSession)
+        {
+            _cancellationTokenSource = new CancellationTokenSource();
+            _pauseController = new PauseController();
+            _sessionParallelism = GetParallelism();
+            _parallelSemaphore = new SemaphoreSlim(_sessionParallelism);
+            _sessionCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _sessionTaskCount = 0;
+
+            ShowParallelMode(sources.Length);
+            SetRunningState(true);
+        }
+
+        TestCard[] cards = sources.Select(CreateTestCard).ToArray();
+        _sessionTaskCount += cards.Length;
+        StatusText.Text = newSession
+            ? $"Источников: {sources.Length} · одновременно: {_sessionParallelism}"
+            : $"Добавлено источников: {sources.Length} · одновременно: {_sessionParallelism}";
+        UpdateOverall();
+
+        Task[] tasks = sources
+            .Select((source, index) => RunParallelSourceAsync(
+                source,
+                cards[index],
+                _parallelSemaphore!,
+                _cancellationTokenSource!.Token))
             .ToArray();
-        _parallelDisplays.AddRange(displays);
 
-        using var semaphore = new SemaphoreSlim(GetParallelism());
+        if (!newSession)
+        {
+            await Task.WhenAll(tasks);
+            return;
+        }
 
         try
         {
-            Task[] tasks = sources.Select((source, index) => RunParallelSourceAsync(
-                source,
-                displays[index],
-                semaphore,
-                _cancellationTokenSource.Token)).ToArray();
-
-            await Task.WhenAll(tasks);
+            await _sessionCompletion!.Task;
         }
         finally
         {
-            _cancellationTokenSource.Dispose();
+            bool wasCancelled = _cancellationTokenSource?.IsCancellationRequested == true;
+
+            _parallelSemaphore?.Dispose();
+            _parallelSemaphore = null;
+            _sessionCompletion = null;
+            _sessionTaskCount = 0;
+            _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
             _pauseController = null;
-            ParallelTestsPanel.Children.Clear();
-            _parallelDisplays.Clear();
-            ParallelTestsScrollViewer.Visibility = Visibility.Collapsed;
-            LiveGraph.Visibility = Visibility.Visible;
-            TestProgressBar.Visibility = Visibility.Visible;
+
+            // Карточки остаются на экране: итоги и графики каждого источника видны после теста.
+            ShowSummary(_cards.ToArray(), wasCancelled);
             SetRunningState(false);
         }
     }
 
+    private void ShowSummary(TestCard[] cards, bool wasCancelled)
+    {
+        int withResult = cards.Count(c => c.CompletedRuns > 0);
+        int failed = cards.Count(c => c.State == TestCardState.Failed);
+
+        string text = $"{(wasCancelled ? "Остановлено" : "Готово")}: " +
+                      $"результат получен у {withResult} из {cards.Length}";
+
+        if (failed > 0)
+            text += $", ошибок: {failed}";
+
+        StatusText.Text = text;
+        ProgressText.Text = string.Empty;
+    }
+
+    /// <summary>Суммарная строка под карточками: общая скорость и сколько тестов в каком состоянии.</summary>
+    private void UpdateOverall()
+    {
+        int active = _cards.Count(c => c.State is TestCardState.Running or TestCardState.Paused);
+        int limit = _cancellationTokenSource is null ? GetParallelism() : _sessionParallelism;
+        ParallelInfoText.Text = $"Параллельно: {active}/{limit}";
+
+        if (_cards.Count == 0 || _cancellationTokenSource is null)
+            return;
+
+        int queued = _cards.Count(c => c.State == TestCardState.Queued);
+        int finished = _cards.Count(c => c.State is
+            TestCardState.Completed or TestCardState.Failed or TestCardState.Cancelled);
+        double averageSpeed = _cards.Count > 0
+            ? _cards.Average(c => c.CurrentSpeedMBps)
+            : 0;
+
+        ProgressText.Text =
+            $"Средняя скорость: {FormatSpeed(averageSpeed)}   |   " +
+            $"Активно: {active}   |   В очереди: {queued}   |   " +
+            $"Завершено: {finished} из {_cards.Count}";
+    }
+
     private async Task RunParallelSourceAsync(
         string source,
-        ParallelTestDisplay display,
+        TestCard card,
         SemaphoreSlim semaphore,
         CancellationToken cancellationToken)
     {
         SourceType sourceType = SourceDetector.Detect(source);
-        bool semaphoreEntered = false;
+        int run = 0;
 
         try
         {
-            await semaphore.WaitAsync(cancellationToken);
-            semaphoreEntered = true;
-
-            IReadEngine engine = sourceType switch
-            {
-                SourceType.Local => new LocalReadEngine(),
-                SourceType.Network => new NetworkReadEngine(),
-                SourceType.Internet => new InternetReadEngine(),
-                _ => throw new NotSupportedException("Этот тип источника пока не поддерживается.")
-            };
-
             do
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                // Источник занимает слот только на время одного прогона. В режиме Loop источник
+                // после каждого прогона снова встаёт в очередь, поэтому при лимите параллельности
+                // меньше числа источников по очереди проверяются все, а не только первые.
+                card.SetQueued();
+                UpdateOverall();
 
-                display.Samples.Clear();
-                display.Graph.Clear();
-                display.Progress.Value = 0;
-                display.Progress.IsIndeterminate = true;
-                display.Status.Text = "Подготовка теста...";
+                await semaphore.WaitAsync(cancellationToken);
 
-                long? fileSize = sourceType == SourceType.Local
-                    ? new FileInfo(source).Length
-                    : null;
-
-                var progress = new Progress<ReadProgress>(p =>
+                try
                 {
-                    if (p.IsCompleted)
-                        return;
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                    display.Progress.IsIndeterminate = false;
-                    display.Samples.Add(new SpeedSample(
-                        p.Elapsed.TotalSeconds,
-                        p.CurrentSpeedMBps));
-                    display.Graph.SetData(display.Samples, p.AverageSpeedMBps);
-                    display.Status.Text =
-                        $"Текущая скорость: {FormatSpeed(p.CurrentSpeedMBps)} | " +
-                        $"Средняя: {FormatSpeed(p.AverageSpeedMBps)} | " +
-                        $"Прочитано: {SizeFormatter.ToText(p.BytesRead)}";
+                    run++;
+                    card.BeginRun(run);
 
-                    if (fileSize is > 0)
+                    PauseController pauseController = _cardPauseControllers[card];
+
+                    if (pauseController.IsPaused)
+                        card.SetPaused(true);
+
+                    UpdateOverall();
+
+                    long? fileSize = sourceType == SourceType.Local
+                        ? new FileInfo(source).Length
+                        : null;
+
+                    var progress = new Progress<ReadProgress>(p =>
                     {
-                        display.Progress.Value = Math.Min(
-                            100,
-                            p.BytesRead * 100.0 / fileSize.Value);
-                    }
-                });
+                        if (p.IsCompleted)
+                            return;
 
-                BenchmarkResult result = await engine.RunAsync(
-                    new BenchmarkSettings
-                    {
-                        SourcePath = source,
-                        BufferSize = 1024,
-                        DisableWindowsCache = true,
-                        PauseController = _pauseController
-                    },
-                    progress,
-                    cancellationToken);
+                        card.ReportProgress(p, fileSize);
+                        UpdateOverall();
+                    });
 
-                result.CompletedAt = DateTime.Now;
-                result.Status = "OK";
-                display.Progress.IsIndeterminate = false;
-                display.Progress.Value = 100;
-                display.Graph.SetData(result.Samples, result.AverageSpeedMBps);
-                display.Status.Text =
-                    $"Завершён. Средняя скорость: {FormatSpeed(result.AverageSpeedMBps)}";
-                await AddToHistoryAsync(result);
+                    BenchmarkResult result = await RunWithThreadsAsync(
+                        source,
+                        sourceType,
+                        GetThreadCount(),
+                        new BenchmarkSettings
+                        {
+                            SourcePath = source,
+                            BufferSize = 1024,
+                            DisableWindowsCache = false,
+                            PauseController = pauseController,
+                            ThreadCount = GetThreadCount()
+                        },
+                        progress,
+                        cancellationToken);
+
+                    result.CompletedAt = DateTime.Now;
+                    result.Status = "OK";
+
+                    card.Complete(result);
+                    UpdateOverall();
+
+                    await AddToHistoryAsync(result);
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
             }
             while (LoopCheckBox.IsChecked == true && !cancellationToken.IsCancellationRequested);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            display.Status.Text = "Отменён";
+            card.Cancel();
         }
         catch (Exception ex)
         {
-            display.Progress.IsIndeterminate = false;
-            display.Status.Text = $"Ошибка: {ex.Message}";
+            // Ошибка одного источника не останавливает остальные.
+            card.Fail(ex.Message);
+
             await AddToHistoryAsync(new BenchmarkResult
             {
                 Source = source,
@@ -633,9 +704,113 @@ public partial class MainWindow : Window
         }
         finally
         {
-            if (semaphoreEntered)
-                semaphore.Release();
+            _sessionTaskCount--;
+            if (_sessionTaskCount == 0)
+                _sessionCompletion?.TrySetResult();
+
+            UpdateOverall();
         }
+    }
+
+    private static IReadEngine CreateEngine(SourceType sourceType) => sourceType switch
+    {
+        SourceType.Local => new LocalReadEngine(),
+        SourceType.Network => new NetworkReadEngine(),
+        SourceType.Internet => new InternetReadEngine(),
+        _ => throw new NotSupportedException("Этот тип источника пока не поддерживается.")
+    };
+
+    private static async Task<BenchmarkResult> RunWithThreadsAsync(
+        string source,
+        SourceType sourceType,
+        int threadCount,
+        BenchmarkSettings settings,
+        IProgress<ReadProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        threadCount = Math.Clamp(threadCount, 1, 64);
+        var threadProgress = new ReadProgress[threadCount];
+        object progressLock = new();
+
+        Task<BenchmarkResult>[] tasks = Enumerable.Range(0, threadCount)
+            .Select(index =>
+            {
+                IReadEngine engine = CreateEngine(sourceType);
+                var threadSettings = new BenchmarkSettings
+                {
+                    SourcePath = settings.SourcePath,
+                    BufferSize = settings.BufferSize,
+                    DisableWindowsCache = settings.DisableWindowsCache,
+                    PauseController = settings.PauseController,
+                    ThreadCount = 1
+                };
+
+                var threadReporter = new Progress<ReadProgress>(sample =>
+                {
+                    if (sample.IsCompleted)
+                        return;
+
+                    ReadProgress aggregate;
+                    lock (progressLock)
+                    {
+                        threadProgress[index] = sample;
+                        aggregate = new ReadProgress
+                        {
+                            BytesRead = threadProgress.Sum(item => item?.BytesRead ?? 0),
+                            CurrentSpeedMBps = threadProgress.Sum(item => item?.CurrentSpeedMBps ?? 0),
+                            AverageSpeedMBps = threadProgress.Sum(item => item?.AverageSpeedMBps ?? 0),
+                            Elapsed = threadProgress.Max(item => item?.Elapsed ?? TimeSpan.Zero)
+                        };
+                    }
+
+                    progress?.Report(aggregate);
+                });
+
+                return engine.RunAsync(threadSettings, threadReporter, cancellationToken);
+            })
+            .ToArray();
+
+        BenchmarkResult[] results = await Task.WhenAll(tasks);
+        BenchmarkResult result = results[0];
+        TimeSpan duration = results.Max(item => item.Duration);
+        long totalBytes = results.Sum(item => item.TotalBytesRead);
+
+        result.TotalBytesRead = totalBytes;
+        result.Duration = duration;
+        result.AverageSpeedMBps = duration.TotalSeconds > 0
+            ? totalBytes / 1024d / 1024d / duration.TotalSeconds
+            : results.Sum(item => item.AverageSpeedMBps);
+        result.MinimumSpeedMBps = results.Sum(item => item.MinimumSpeedMBps);
+        result.MaximumSpeedMBps = results.Sum(item => item.MaximumSpeedMBps);
+        result.ReachedEnd = results.All(item => item.ReachedEnd);
+        result.Samples = MergeSamples(results);
+        result.Source = source;
+        result.SourceKind = sourceType.ToString();
+
+        return result;
+    }
+
+    private static List<SpeedSample> MergeSamples(IReadOnlyList<BenchmarkResult> results)
+    {
+        int count = results.Max(result => result.Samples.Count);
+        var merged = new List<SpeedSample>(count);
+
+        for (int index = 0; index < count; index++)
+        {
+            SpeedSample[] samples = results
+                .Where(result => index < result.Samples.Count)
+                .Select(result => result.Samples[index])
+                .ToArray();
+
+            if (samples.Length > 0)
+            {
+                merged.Add(new SpeedSample(
+                    samples.Max(sample => sample.TimeSeconds),
+                    samples.Sum(sample => sample.SpeedMBps)));
+            }
+        }
+
+        return merged;
     }
 
     private async Task StartSourceAsync(string source)
@@ -658,6 +833,7 @@ public partial class MainWindow : Window
         }
 
         MainTabs.SelectedIndex = 0;
+        ShowSingleMode();
 
         _cancellationTokenSource = new CancellationTokenSource();
         _pauseController = new PauseController();
@@ -686,7 +862,7 @@ public partial class MainWindow : Window
                 {
                     SourcePath = source,
                     BufferSize = 1024,
-                    DisableWindowsCache = true,
+                    DisableWindowsCache = false,
                     PauseController = _pauseController
                 };
 
@@ -806,31 +982,75 @@ public partial class MainWindow : Window
 
     private void PauseButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_pauseController is null)
-            return;
-
-        if (_pauseController.IsPaused)
+        if (_selectedCard is not null &&
+            (_selectedCard.State is TestCardState.Running or TestCardState.Paused) &&
+            _cardPauseControllers.TryGetValue(_selectedCard, out PauseController? selectedController))
         {
-            _pauseController.Resume();
-            PauseButton.Content = "Пауза";
-            StatusText.Text = "Тест продолжается";
+            bool pause = !selectedController.IsPaused;
+
+            if (pause)
+                selectedController.Pause();
+            else
+                selectedController.Resume();
+
+            _selectedCard.SetPaused(pause);
+            StatusText.Text = pause
+                ? "Выбранный тест приостановлен"
+                : "Выбранный тест продолжается";
+        }
+        else if (_cardPauseControllers.Count == 0)
+        {
+            return;
         }
         else
         {
-            _pauseController.Pause();
-            PauseButton.Content = "Продолжить";
-            StatusText.Text = "Тест приостановлен";
+            bool pause = _cards.Any(card => card.State == TestCardState.Running);
+
+            foreach (TestCard card in _cards)
+            {
+                PauseController controller = _cardPauseControllers[card];
+
+                if (pause)
+                    controller.Pause();
+                else
+                    controller.Resume();
+
+                card.SetPaused(pause);
+            }
+
+            StatusText.Text = pause
+                ? "Все тесты приостановлены"
+                : "Все тесты продолжаются";
         }
+
+        UpdatePauseButton();
+        UpdateOverall();
+    }
+
+    private void UpdatePauseButton()
+    {
+        if (_selectedCard is not null &&
+            (_selectedCard.State is TestCardState.Running or TestCardState.Paused) &&
+            _cardPauseControllers.TryGetValue(_selectedCard, out PauseController? controller))
+        {
+            PauseButton.Content = controller.IsPaused ? "Продолжить" : "Пауза";
+            return;
+        }
+
+        bool allPaused = _cards.Any() &&
+                         _cards.Where(card => card.State is TestCardState.Running or TestCardState.Paused)
+                               .All(card => card.State == TestCardState.Paused);
+        PauseButton.Content = allPaused ? "Продолжить" : "Пауза";
     }
 
     private void SetRunningState(bool isRunning)
     {
         PauseButton.IsEnabled = isRunning;
         CancelButton.IsEnabled = isRunning;
-        StartButton.IsEnabled = !isRunning;
-        SpeedUnitComboBox.IsEnabled = !isRunning;
-        SourceTextBox.IsEnabled = !isRunning;
-        ParallelTextBox.IsEnabled = !isRunning;
+        StartButton.IsEnabled = true;
+        SpeedUnitComboBox.IsEnabled = true;
+        SourceTextBox.IsEnabled = true;
+        ParallelTextBox.IsEnabled = true;
         RerunSelectedButton.IsEnabled = !isRunning &&
             HistoryGrid.SelectedItem is BenchmarkResult;
 
@@ -838,16 +1058,12 @@ public partial class MainWindow : Window
             PauseButton.Content = "Пауза";
 
         if (!isRunning)
+        {
             TestProgressBar.IsIndeterminate = false;
-    }
+            ParallelInfoText.Text = "Параллельно: 0/" + GetParallelism();
+        }
 
-    private sealed class ParallelTestDisplay
-    {
-        public string Source { get; init; } = string.Empty;
-        public TextBlock Status { get; init; } = null!;
-        public ProgressBar Progress { get; init; } = null!;
-        public SpeedGraph Graph { get; init; } = null!;
-        public List<SpeedSample> Samples { get; } = new();
+        UpdatePauseButton();
     }
 
     private sealed class SpeedValueConverter : IValueConverter
