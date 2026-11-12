@@ -12,9 +12,9 @@ public static class SpeedUnitFormatter
 {
     public static double Convert(double megabytesPerSecond, SpeedUnit unit) => unit switch
     {
-        SpeedUnit.GigabytesPerSecond => megabytesPerSecond / 1024,
+        SpeedUnit.GigabytesPerSecond => megabytesPerSecond / 1000,
         SpeedUnit.MegabitsPerSecond => megabytesPerSecond * 8,
-        SpeedUnit.GigabitsPerSecond => megabytesPerSecond * 8 / 1024,
+        SpeedUnit.GigabitsPerSecond => megabytesPerSecond * 8 / 1000,
         _ => megabytesPerSecond
     };
 

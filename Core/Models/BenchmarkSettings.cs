@@ -12,5 +12,9 @@ public class BenchmarkSettings
 
     public bool DisableWindowsCache { get; set; } = true;
 
+    public long StartOffset { get; set; }
+
+    public long? MaxBytes { get; set; }
+
     public PauseController? PauseController { get; set; }
 }

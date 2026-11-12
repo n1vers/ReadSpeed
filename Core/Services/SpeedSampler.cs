@@ -11,7 +11,7 @@ public sealed class SpeedSampler
 {
     private const int IntervalMs = 250;
     private const double MinTailSeconds = 0.1;
-    private const double MegaByte = 1024.0 * 1024.0;
+    private const double MegaByte = 1_000_000.0;
 
     private readonly IProgress<ReadProgress>? _progress;
     private readonly Stopwatch _total = Stopwatch.StartNew();

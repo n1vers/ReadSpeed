@@ -153,6 +153,14 @@ public class LocalReadEngine : IReadEngine
             bufferSize: 1024 * 1024,
             options: FileOptions.SequentialScan);
 
+        if (settings.StartOffset < 0 || settings.StartOffset > stream.Length)
+            throw new ArgumentOutOfRangeException(nameof(settings.StartOffset));
+
+        stream.Position = settings.StartOffset;
+        long bytesToRead = Math.Min(
+            stream.Length - settings.StartOffset,
+            settings.MaxBytes ?? long.MaxValue);
+
         var sampler = new SpeedSampler(progress);
         byte[] buffer = new byte[checked(settings.BufferSize * 1024)];
 
@@ -164,11 +172,15 @@ public class LocalReadEngine : IReadEngine
                 .GetAwaiter()
                 .GetResult();
 
-            int bytesRead = stream.Read(buffer, 0, buffer.Length);
+            int bytesRead = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, bytesToRead));
             if (bytesRead == 0)
                 break;
 
             sampler.AddBytes(bytesRead);
+            bytesToRead -= bytesRead;
+
+            if (bytesToRead == 0)
+                break;
         }
 
         BenchmarkResult result = sampler.Finish();
@@ -177,7 +189,7 @@ public class LocalReadEngine : IReadEngine
         result.TestType = "Последовательное чтение (с кэшем Windows)";
         result.FileSizeBytes = stream.Length;
         result.BufferSizeKB = settings.BufferSize;
-        result.ReachedEnd = true;
+        result.ReachedEnd = bytesToRead == 0 || stream.Position >= stream.Length;
         return result;
     }
 

@@ -31,7 +31,7 @@ public class NetworkReadEngine : IReadEngine
         bool reachedEnd = false;
 
         var sampler = new SpeedSampler(progress);
-        long position = 0;
+        long position = Math.Max(0, settings.StartOffset);
         bool reconnectRequested = false;
         NetworkInterfaceState previousState = GetNetworkInterfaceState();
 
@@ -72,7 +72,15 @@ public class NetworkReadEngine : IReadEngine
                              FileOptions.SequentialScan);
 
                 fileSize = stream.Length;
-                stream.Position = position;
+                long startOffset = position;
+                if (startOffset > stream.Length)
+                    throw new ArgumentOutOfRangeException(nameof(settings.StartOffset));
+
+                stream.Position = startOffset;
+                long remaining = Math.Min(
+                    stream.Length - position,
+                    Math.Max(0, (settings.MaxBytes ?? long.MaxValue) -
+                        (position - settings.StartOffset)));
 
                 while (true)
                 {
@@ -92,8 +100,16 @@ public class NetworkReadEngine : IReadEngine
                         }
                     }
 
+                    if (remaining <= 0)
+                    {
+                        reachedEnd = true;
+                        break;
+                    }
+
+                    int readSize = (int)Math.Min(buffer.Length, remaining);
+
                     int bytesRead = await stream.ReadAsync(
-                        buffer.AsMemory(0, buffer.Length),
+                        buffer.AsMemory(0, readSize),
                         reconnectCancellation.Token);
 
                     if (bytesRead == 0)
@@ -104,6 +120,13 @@ public class NetworkReadEngine : IReadEngine
 
                     position += bytesRead;
                     sampler.AddBytes(bytesRead);
+
+                    remaining -= bytesRead;
+                    if (remaining <= 0)
+                    {
+                        reachedEnd = true;
+                        break;
+                    }
                 }
             }
             catch (OperationCanceledException) when (

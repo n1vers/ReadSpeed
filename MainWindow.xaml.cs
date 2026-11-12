@@ -729,6 +729,20 @@ public partial class MainWindow : Window
         CancellationToken cancellationToken)
     {
         threadCount = Math.Clamp(threadCount, 1, 64);
+
+        if (sourceType == SourceType.Internet)
+            threadCount = 1;
+
+        long? sourceLength = sourceType is SourceType.Local or SourceType.Network
+            ? new FileInfo(source).Length
+            : null;
+
+        threadCount = sourceLength is > 0
+            ? Math.Min(threadCount, (int)Math.Min(sourceLength.Value, 64))
+            : 1;
+        long segmentSize = sourceLength.HasValue
+            ? (sourceLength.Value + threadCount - 1) / threadCount
+            : 0;
         var threadProgress = new ReadProgress[threadCount];
         object progressLock = new();
 
@@ -742,10 +756,14 @@ public partial class MainWindow : Window
                     BufferSize = settings.BufferSize,
                     DisableWindowsCache = settings.DisableWindowsCache,
                     PauseController = settings.PauseController,
+                    StartOffset = sourceLength.HasValue ? index * segmentSize : 0,
+                    MaxBytes = sourceLength.HasValue
+                        ? Math.Min(segmentSize, Math.Max(0, sourceLength.Value - index * segmentSize))
+                        : null,
                     ThreadCount = 1
                 };
 
-                var threadReporter = new Progress<ReadProgress>(sample =>
+                var threadReporter = new InlineProgress<ReadProgress>(sample =>
                 {
                     if (sample.IsCompleted)
                         return;
@@ -780,10 +798,15 @@ public partial class MainWindow : Window
         result.AverageSpeedMBps = duration.TotalSeconds > 0
             ? totalBytes / 1024d / 1024d / duration.TotalSeconds
             : results.Sum(item => item.AverageSpeedMBps);
-        result.MinimumSpeedMBps = results.Sum(item => item.MinimumSpeedMBps);
-        result.MaximumSpeedMBps = results.Sum(item => item.MaximumSpeedMBps);
         result.ReachedEnd = results.All(item => item.ReachedEnd);
         result.Samples = MergeSamples(results);
+
+        if (result.Samples.Count > 0)
+        {
+            result.MinimumSpeedMBps = result.Samples.Min(sample => sample.SpeedMBps);
+            result.MaximumSpeedMBps = result.Samples.Max(sample => sample.SpeedMBps);
+        }
+
         result.Source = source;
         result.SourceKind = sourceType.ToString();
 
@@ -1075,5 +1098,10 @@ public partial class MainWindow : Window
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class InlineProgress<T>(Action<T> callback) : IProgress<T>
+    {
+        public void Report(T value) => callback(value);
     }
 }

@@ -16,6 +16,7 @@ public sealed class SpeedGraph : FrameworkElement
     private const double TopMargin = 14;
     private const double BottomMargin = 26;
     private const int HorizontalDivisions = 5;
+    private const double SmoothingAlpha = 0.22;
 
     private static readonly Brush BackgroundBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x20)));
 
@@ -90,7 +91,7 @@ public sealed class SpeedGraph : FrameworkElement
             width - LeftMargin - RightMargin,
             height - TopMargin - BottomMargin);
 
-        IReadOnlyList<SpeedSample>? samples = _samples;
+        IReadOnlyList<SpeedSample>? samples = SmoothSamples(_samples);
         bool hasData = samples is { Count: > 0 };
 
         double maxSpeed = 0;
@@ -103,6 +104,9 @@ public sealed class SpeedGraph : FrameworkElement
                 maxSpeed = Math.Max(maxSpeed, ConvertSpeed(s.SpeedMBps));
                 maxTime = Math.Max(maxTime, s.TimeSeconds);
             }
+
+            if (_averageMBps is > 0)
+                maxSpeed = Math.Max(maxSpeed, ConvertSpeed(_averageMBps.Value));
         }
 
         double yMax = NiceCeiling(maxSpeed * 1.1);
@@ -130,6 +134,31 @@ public sealed class SpeedGraph : FrameworkElement
         }
 
         dc.DrawRectangle(null, FramePen, plot);
+    }
+
+    private static IReadOnlyList<SpeedSample>? SmoothSamples(
+        IReadOnlyList<SpeedSample>? samples)
+    {
+        if (samples is not { Count: > 1 })
+            return samples;
+
+        var smoothed = new List<SpeedSample>(samples.Count);
+        double smoothedSpeed = samples[0].SpeedMBps;
+
+        for (int i = 0; i < samples.Count; i++)
+        {
+            if (i > 0)
+            {
+                smoothedSpeed += SmoothingAlpha *
+                    (samples[i].SpeedMBps - smoothedSpeed);
+            }
+
+            smoothed.Add(new SpeedSample(
+                samples[i].TimeSeconds,
+                smoothedSpeed));
+        }
+
+        return smoothed;
     }
 
     private void DrawGrid(
